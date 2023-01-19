@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -37,12 +38,18 @@ func main() {
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
-	var ok bool
 	switch {
 	case pattern == `\d`:
-		ok = bytes.ContainsAny(line, "0123456789")
+		return bytes.ContainsAny(line, "0123456789"), nil
+	case pattern == `\w`:
+		for _, s := range string(line) {
+			if s == '_' || unicode.IsDigit(s) || unicode.IsLetter(s) {
+				return true, nil
+			}
+		}
+		return false, nil
 	case utf8.RuneCountInString(pattern) == 1:
-		ok = bytes.ContainsAny(line, pattern)
+		return bytes.ContainsAny(line, pattern), nil
 	}
-	return ok, fmt.Errorf("unsupported pattern: %s", pattern)
+	return false, fmt.Errorf("unsupported pattern: %s", pattern)
 }
