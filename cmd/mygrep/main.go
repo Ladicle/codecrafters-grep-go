@@ -37,62 +37,93 @@ func main() {
 	// default exit code is 0 which means success
 }
 
+const (
+	TokenCharactorClass = iota
+	TokenBracket
+	TokenRune
+)
+
+type token struct {
+	str string
+	typ int
+}
+
+type result struct {
+	ok   bool
+	exit bool
+}
+
 func matchLine(line []byte, patterns string) (bool, error) {
 	var cursor int
-	var ok bool
-	for _, r := range bytes.Runes(line) {
-		log.Printf("len=%d, cursor=%d", len(patterns), cursor)
-		if len(patterns) == cursor {
-			return true, nil
-		}
-		if r == '\n' {
-			log.Println("END of Line")
-			break
-		}
+
+	tokenize := func() (*token, error) {
 		s := string(patterns[cursor])
-		switch {
-		case s == `\`:
-			cursor++
-			s = string(patterns[cursor])
-			if (s == "d" && unicode.IsDigit(r)) || (s == "w" && unicode.IsLetter(r)) {
-				cursor++
-				ok = true
-				continue
-			} else {
-				cursor--
-				s = string(patterns[cursor])
+		if s == `\` {
+			t := &token{
+				str: patterns[cursor : cursor+2],
+				typ: TokenCharactorClass,
 			}
-		case s == "[":
-			parts := strings.SplitN(patterns[cursor+1:], "]", 2)
-			if len(parts) != 2 {
-				return false, fmt.Errorf("invalid input: unmatched bracket: %s", patterns)
+			if s := string(patterns[cursor+1]); s == "d" || s == "w" {
+				return t, nil
 			}
-			cursor += 1 + len(parts[0]) + 1
-			if parts[0][0] == '^' {
-				if !strings.ContainsAny(string(r), parts[0][1:]) {
-					ok = true
-					continue
-				}
-				log.Println("unmatched negative charactor groups")
-				return false, nil
-			} else if strings.ContainsAny(string(r), parts[0]) {
-				ok = true
-				continue
+			return nil, fmt.Errorf("unsupported charactor class: %s", t.str)
+		}
+		if s == "[" {
+			idx := strings.Index(patterns[cursor:], "]")
+			if idx == -1 {
+				return nil, fmt.Errorf("unmatched bracket: %s", patterns[cursor:])
 			}
-			cursor -= 1 + len(parts[0]) + 1
-			s = string(patterns[cursor])
-		case utf8.RuneCountInString(s) == 1 && strings.ContainsRune(s, r):
-			cursor++
-			ok = true
+			return &token{str: patterns[cursor+1 : idx+1], typ: TokenBracket}, nil
+		}
+		if utf8.RuneCountInString(s) == 1 {
+			return &token{str: s, typ: TokenRune}, nil
+		}
+		return nil, fmt.Errorf("unknown token: %s", s)
+	}
+
+	parse := func(t token, r rune) (*result, error) {
+		var rlt result
+		switch t.typ {
+		case TokenCharactorClass:
+			rlt.ok = (t.str == `\d` && unicode.IsDigit(r)) || (t.str == `\w` && unicode.IsLetter(r))
+		case TokenBracket:
+			if string(t.str[1]) != "^" {
+				rlt.ok = strings.ContainsAny(string(r), t.str[1:len(t.str)-1])
+				break
+			}
+			rlt.ok = !strings.ContainsAny(string(r), t.str[2:len(t.str)-1])
+			if !rlt.ok {
+				rlt.exit = true
+			}
+		case TokenRune:
+			rlt.ok = strings.ContainsRune(t.str, r)
+		default:
+			return nil, fmt.Errorf("unknown token type: id=%d", t.typ)
+		}
+		return &rlt, nil
+	}
+
+	var last *result
+	for _, r := range bytes.Runes(line) {
+		token, err := tokenize()
+		if err != nil {
+			return false, err
+		}
+		last, err = parse(*token, r)
+		if err != nil {
+			return false, err
+		}
+		if last.exit {
+			return last.ok, nil
+		}
+		if !last.ok {
+			log.Printf("unmatched: r=%q, token=%+v", r, token)
 			continue
 		}
-		// unmatched
-		log.Printf("invalid argument: input=%q, pattern=%q", string(r), s)
-		ok = false
+		cursor += len(token.str)
+		if len(patterns) == cursor {
+			break
+		}
 	}
-	if ok {
-		return len(patterns) == cursor, nil
-	}
-	log.Printf("unmatched: lines=%q, pattern=%q", line, patterns)
-	return false, nil
+	return last != nil && last.ok && len(patterns) == cursor, nil
 }
