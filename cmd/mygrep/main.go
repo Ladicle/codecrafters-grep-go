@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"unicode/utf8"
 )
 
 // Usage: echo <input_text> | your_grep.sh -E <pattern>
@@ -37,11 +38,11 @@ func main() {
 
 func matchLine(line []byte, pattern string) (bool, error) {
 	var ok bool
-	switch pattern {
-	case "\\d":
+	switch {
+	case pattern == `\d`:
 		ok = bytes.ContainsAny(line, "0123456789")
-	default:
+	case utf8.RuneCountInString(pattern) == 1:
 		ok = bytes.ContainsAny(line, pattern)
 	}
-	return ok, nil
+	return ok, fmt.Errorf("unsupported pattern: %s", pattern)
 }
