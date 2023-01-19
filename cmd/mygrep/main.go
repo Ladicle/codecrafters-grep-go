@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -27,9 +29,7 @@ func main() {
 	ok, err := matchLine(line, pattern)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2)
 	}
-
 	if !ok {
 		os.Exit(1)
 	}
@@ -37,24 +37,62 @@ func main() {
 	// default exit code is 0 which means success
 }
 
-func matchLine(line []byte, pattern string) (bool, error) {
-	switch {
-	case pattern == `\d`:
-		return bytes.ContainsAny(line, "0123456789"), nil
-	case pattern == `\w`:
-		for _, s := range string(line) {
-			if unicode.IsLetter(s) {
-				return true, nil
+func matchLine(line []byte, patterns string) (bool, error) {
+	var cursor int
+	var ok bool
+	for _, r := range bytes.Runes(line) {
+		log.Printf("len=%d, cursor=%d", len(patterns), cursor)
+		if len(patterns) == cursor {
+			return true, nil
+		}
+		if r == '\n' {
+			log.Println("END of Line")
+			break
+		}
+		s := string(patterns[cursor])
+		switch {
+		case s == `\`:
+			cursor++
+			s = string(patterns[cursor])
+			if (s == "d" && unicode.IsDigit(r)) || (s == "w" && unicode.IsLetter(r)) {
+				cursor++
+				ok = true
+				continue
+			} else {
+				cursor--
+				s = string(patterns[cursor])
 			}
+		case s == "[":
+			parts := strings.SplitN(patterns[cursor+1:], "]", 2)
+			if len(parts) != 2 {
+				return false, fmt.Errorf("invalid input: unmatched bracket: %s", patterns)
+			}
+			cursor += 1 + len(parts[0]) + 1
+			if parts[0][0] == '^' {
+				if !strings.ContainsAny(string(r), parts[0][1:]) {
+					ok = true
+					continue
+				}
+				log.Println("unmatched negative charactor groups")
+				return false, nil
+			} else if strings.ContainsAny(string(r), parts[0]) {
+				ok = true
+				continue
+			}
+			cursor -= 1 + len(parts[0]) + 1
+			s = string(patterns[cursor])
+		case utf8.RuneCountInString(s) == 1 && strings.ContainsRune(s, r):
+			cursor++
+			ok = true
+			continue
 		}
-		return false, nil
-	case utf8.RuneCountInString(pattern) == 1:
-		return bytes.ContainsAny(line, pattern), nil
-	case pattern[0] == '[' && pattern[len(pattern)-1] == ']':
-		if pattern[1] == '^' {
-			return !bytes.ContainsAny(line, pattern[2:len(pattern)-1]), nil
-		}
-		return bytes.ContainsAny(line, pattern[1:len(pattern)-1]), nil
+		// unmatched
+		log.Printf("invalid argument: input=%q, pattern=%q", string(r), s)
+		ok = false
 	}
-	return false, fmt.Errorf("unsupported pattern: %s", pattern)
+	if ok {
+		return len(patterns) == cursor, nil
+	}
+	log.Printf("unmatched: lines=%q, pattern=%q", line, patterns)
+	return false, nil
 }
