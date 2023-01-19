@@ -43,7 +43,7 @@ func matchLine(line []byte, pattern string) (bool, error) {
 		return bytes.ContainsAny(line, "0123456789"), nil
 	case pattern == `\w`:
 		for _, s := range string(line) {
-			if s == '_' || unicode.IsDigit(s) || unicode.IsLetter(s) {
+			if unicode.IsLetter(s) {
 				return true, nil
 			}
 		}
