@@ -41,14 +41,15 @@ const (
 	TokenCharactorClass = iota
 	TokenBracket
 	TokenRune
+	TokenAnchor
 )
 
-type token struct {
-	str string
+type Token struct {
+	s   string
 	typ int
 }
 
-type result struct {
+type Result struct {
 	ok   bool
 	exit bool
 }
@@ -56,54 +57,61 @@ type result struct {
 func matchLine(line []byte, patterns string) (bool, error) {
 	var cursor int
 
-	tokenize := func() (*token, error) {
+	tokenize := func() (*Token, error) {
 		s := string(patterns[cursor])
-		if s == `\` {
-			t := &token{
-				str: patterns[cursor : cursor+2],
+		switch {
+		case s == "^":
+			return &Token{s: s, typ: TokenAnchor}, nil
+		case s == `\`:
+			t := &Token{
+				s:   patterns[cursor : cursor+2],
 				typ: TokenCharactorClass,
 			}
 			if s := string(patterns[cursor+1]); s == "d" || s == "w" {
 				return t, nil
 			}
-			return nil, fmt.Errorf("unsupported charactor class: %s", t.str)
-		}
-		if s == "[" {
+			return nil, fmt.Errorf("unsupported charactor class: %s", t.s)
+		case s == "[":
 			idx := strings.Index(patterns[cursor:], "]")
 			if idx == -1 {
 				return nil, fmt.Errorf("unmatched bracket: %s", patterns[cursor:])
 			}
-			return &token{str: patterns[cursor+1 : idx+1], typ: TokenBracket}, nil
-		}
-		if utf8.RuneCountInString(s) == 1 {
-			return &token{str: s, typ: TokenRune}, nil
+			return &Token{s: patterns[cursor : idx+1], typ: TokenBracket}, nil
+		case utf8.RuneCountInString(s) == 1:
+			return &Token{s: s, typ: TokenRune}, nil
 		}
 		return nil, fmt.Errorf("unknown token: %s", s)
 	}
 
-	parse := func(t token, r rune) (*result, error) {
-		var rlt result
+	parse := func(t Token, r rune) (*Result, error) {
+		var rlt Result
 		switch t.typ {
 		case TokenCharactorClass:
-			rlt.ok = (t.str == `\d` && unicode.IsDigit(r)) || (t.str == `\w` && unicode.IsLetter(r))
+			rlt.ok = (t.s == `\d` && unicode.IsDigit(r)) || (t.s == `\w` && unicode.IsLetter(r))
 		case TokenBracket:
-			if string(t.str[1]) != "^" {
-				rlt.ok = strings.ContainsAny(string(r), t.str[1:len(t.str)-1])
+			if string(t.s[1]) != "^" {
+				rlt.ok = strings.ContainsAny(string(r), t.s[1:len(t.s)-1])
 				break
 			}
-			rlt.ok = !strings.ContainsAny(string(r), t.str[2:len(t.str)-1])
+			rlt.ok = !strings.ContainsAny(string(r), t.s[2:len(t.s)-1])
 			if !rlt.ok {
 				rlt.exit = true
 			}
 		case TokenRune:
-			rlt.ok = strings.ContainsRune(t.str, r)
+			rlt.ok = strings.ContainsRune(t.s, r)
 		default:
 			return nil, fmt.Errorf("unknown token type: id=%d", t.typ)
 		}
 		return &rlt, nil
 	}
 
-	var last *result
+	s := string(patterns[0])
+	hasAnchor := s == "^"
+	if hasAnchor {
+		cursor++
+	}
+
+	var last *Result
 	for _, r := range bytes.Runes(line) {
 		token, err := tokenize()
 		if err != nil {
@@ -118,9 +126,12 @@ func matchLine(line []byte, patterns string) (bool, error) {
 		}
 		if !last.ok {
 			log.Printf("unmatched: r=%q, token=%+v", r, token)
+			if hasAnchor {
+				return false, nil
+			}
 			continue
 		}
-		cursor += len(token.str)
+		cursor += len(token.s)
 		if len(patterns) == cursor {
 			break
 		}
