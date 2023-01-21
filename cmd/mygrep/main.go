@@ -110,9 +110,18 @@ func matchLine(line []byte, patterns string) (bool, error) {
 	if hasAnchor {
 		cursor++
 	}
+	s = string(patterns[len(patterns)-1])
+	hasEndAnchor := s == "$"
+	if hasEndAnchor {
+		patterns = patterns[:len(patterns)-1]
+	}
+
+	inputs := bytes.Runes(line)
 
 	var last *Result
-	for _, r := range bytes.Runes(line) {
+	var idx int
+	for i, r := range inputs {
+		idx = i
 		token, err := tokenize()
 		if err != nil {
 			return false, err
@@ -136,5 +145,9 @@ func matchLine(line []byte, patterns string) (bool, error) {
 			break
 		}
 	}
-	return last != nil && last.ok && len(patterns) == cursor, nil
+	ok := last != nil && last.ok && len(patterns) == cursor
+	if ok && hasEndAnchor {
+		return idx == len(inputs)-1, nil
+	}
+	return ok, nil
 }
