@@ -42,11 +42,15 @@ const (
 	TokenBracket
 	TokenRune
 	TokenAnchor
+	TokenPlus
 )
 
 type Token struct {
 	s   string
 	typ int
+
+	matched int
+	plus    bool
 }
 
 type Result struct {
@@ -60,6 +64,8 @@ func matchLine(line []byte, patterns string) (bool, error) {
 	tokenize := func() (*Token, error) {
 		s := string(patterns[cursor])
 		switch {
+		case s == "+":
+			return &Token{s: s, typ: TokenPlus}, nil
 		case s == "^":
 			return &Token{s: s, typ: TokenAnchor}, nil
 		case s == `\`:
@@ -118,17 +124,39 @@ func matchLine(line []byte, patterns string) (bool, error) {
 
 	inputs := bytes.Runes(line)
 
-	var last *Result
 	var idx int
-	for i, r := range inputs {
-		idx = i
-		token, err := tokenize()
-		if err != nil {
-			return false, err
+	var prev *Token
+	var last *Result
+	for idx < len(inputs) {
+		r := inputs[idx]
+		var token *Token
+		var err error
+		if prev != nil && prev.plus {
+			token = prev
+		} else {
+			token, err = tokenize()
+			if err != nil {
+				return false, err
+			}
+			if token.typ == TokenPlus {
+				token = prev
+				token.plus = true
+			}
+			prev = token
 		}
+
 		last, err = parse(*token, r)
 		if err != nil {
 			return false, err
+		}
+		if token.plus && token.matched > 0 && !last.ok {
+			log.Printf("unmatched: r=%q, token=%+v (continue)", r, token)
+			token.plus = false
+			cursor += len(token.s)
+			if len(patterns) == cursor {
+				break
+			}
+			continue
 		}
 		if last.exit {
 			return last.ok, nil
@@ -138,12 +166,15 @@ func matchLine(line []byte, patterns string) (bool, error) {
 			if hasAnchor {
 				return false, nil
 			}
+			idx++
 			continue
 		}
+		token.matched++
 		cursor += len(token.s)
 		if len(patterns) == cursor {
 			break
 		}
+		idx++
 	}
 	ok := last != nil && last.ok && len(patterns) == cursor
 	if ok && hasEndAnchor {
