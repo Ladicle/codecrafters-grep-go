@@ -25,14 +25,6 @@ const (
 	TokenPlus
 )
 
-type Token struct {
-	s   string
-	typ int
-
-	matched int
-	plus    bool
-}
-
 type Result struct {
 	ok   bool
 	exit bool
@@ -61,7 +53,7 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 		r := inputs[idx]
 		var token *Token
 		var err error
-		if prev != nil && prev.plus {
+		if prev != nil && prev.op != nil {
 			token = prev
 		} else {
 			token, err = g.nextToken(patterns)
@@ -70,7 +62,7 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 			}
 			if token.typ == TokenPlus {
 				token = prev
-				token.plus = true
+				token.op = &Operator{typ: opPlus}
 			}
 			prev = token
 		}
@@ -79,9 +71,9 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if token.plus && token.matched > 0 && !last.ok {
+		if token.op != nil && token.cnt > 0 && !last.ok {
 			log.Printf("unmatched: r=%q, token=%+v (continue)", r, token)
-			token.plus = false
+			token.op = nil
 			g.cursor += len(token.s)
 			if len(patterns) == g.cursor {
 				break
@@ -99,7 +91,7 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 			idx++
 			continue
 		}
-		token.matched++
+		token.cnt++
 		g.cursor += len(token.s)
 		if len(patterns) == g.cursor {
 			break
