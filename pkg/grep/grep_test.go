@@ -122,6 +122,12 @@ func TestRun(t *testing.T) {
 			wantMatched: true,
 		},
 		{
+			name:        "unmatch +",
+			s:           "act",
+			pattern:     "ca+t",
+			wantMatched: false,
+		},
+		{
 			name:        "matche 0 time to question symbol",
 			s:           "dog",
 			pattern:     "dogs?",

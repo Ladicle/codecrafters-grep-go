@@ -88,7 +88,7 @@ func (t *Token) canIgnore() bool {
 	}
 	switch t.op.typ {
 	case opPlus:
-		return t.cnt > 0
+		return t.cnt > 1
 	case opQuestion:
 		return true
 	}
