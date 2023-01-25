@@ -22,7 +22,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: read input text: %v\n", err)
 		os.Exit(2)
 	}
-	if matched := grep.Run(line, pattern); !matched {
+	if matched := grep.Run(string(line), pattern); !matched {
 		os.Exit(1)
 	}
 	// default exit code is 0 which means success
