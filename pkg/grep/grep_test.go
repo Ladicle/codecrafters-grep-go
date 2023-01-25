@@ -121,6 +121,24 @@ func TestRun(t *testing.T) {
 			pattern:     "ca+ts",
 			wantMatched: true,
 		},
+		// {
+		// 	name:        "matche 0 time to question symbol",
+		// 	s:           "dog",
+		// 	pattern:     "dogs?",
+		// 	wantMatched: true,
+		// },
+		// {
+		// 	name:        "match to question symbol",
+		// 	s:           "dogs",
+		// 	pattern:     "dogs?",
+		// 	wantMatched: true,
+		// },
+		// {
+		// 	name:        "unmatch to question symbol",
+		// 	s:           "cat",
+		// 	pattern:     "dag?",
+		// 	wantMatched: true,
+		// },
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

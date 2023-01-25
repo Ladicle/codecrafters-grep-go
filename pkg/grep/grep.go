@@ -2,143 +2,128 @@ package grep
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
-	"unicode"
 )
 
 func Run(input, pattern string) (matched bool) {
-	g := grep{}
-	matched, err := g.matchLine(input, pattern)
+	grep := newGrep(pattern)
+	matched, err := grep.matchLine(input)
 	if err != nil {
 		log.Println("ERROR:", err)
 	}
 	return matched
 }
 
-type Result struct {
-	ok   bool
-	exit bool
+func newGrep(pattern string) grep {
+	anchor := strings.HasPrefix(pattern, "^")
+	if anchor {
+		pattern = pattern[1:]
+	}
+	endAnchor := strings.HasSuffix(pattern, "$")
+	if endAnchor {
+		pattern = pattern[:len(pattern)-1]
+	}
+	return grep{
+		pattern:   pattern,
+		anchor:    anchor,
+		endAnchor: endAnchor,
+	}
 }
 
 type grep struct {
-	cursor int
+	pattern string
+
+	anchor    bool
+	endAnchor bool
 }
 
-func (g *grep) matchLine(line, patterns string) (bool, error) {
-	hasAnchor := strings.HasPrefix(patterns, "^")
-	if hasAnchor {
-		g.cursor++
-	}
-	hasEndAnchor := strings.HasSuffix(patterns, "$")
-	if hasEndAnchor {
-		patterns = patterns[:len(patterns)-1]
-	}
-
+func (g *grep) matchLine(line string) (bool, error) {
 	inputs := []rune(line)
 
-	var idx int
-	var prev *Token
-	var last *Result
-	for idx < len(inputs) {
-		r := inputs[idx]
-		var token Token
-		var err error
-		if prev != nil && prev.op != nil {
-			token = *prev
-		} else {
-			var ok bool
-			token, ok = g.next(patterns)
-			if !ok {
-				return false, errors.New("failed to get token")
-			}
-			if token.typ == tokPlus {
-				token = *prev
-				token.op = &Operator{typ: opPlus}
-			}
-			prev = &token
-		}
+	token, ok := g.nextToken()
+	if !ok {
+		return false, errors.New("no pattern")
+	}
 
-		last, err = g.parse(token, r)
+	var matched bool
+	var idx int
+	for idx < len(inputs) {
+		var err error
+		matched, err = token.match(inputs[idx])
 		if err != nil {
 			return false, err
 		}
-		if token.op != nil && token.cnt > 0 && !last.ok {
-			log.Printf("unmatched: r=%q, token=%+v (continue)", r, token)
-			token.op = nil
-			g.cursor += token.cursor()
-			if len(patterns) == g.cursor {
-				break
+
+		if matched {
+			idx++
+			if !token.canReuse() {
+				token, ok = g.nextToken()
+				if !ok {
+					break
+				}
 			}
 			continue
 		}
-		if last.exit {
-			return last.ok, nil
+
+		if g.anchor || token.typ == tokNegative {
+			break
 		}
-		if !last.ok {
-			log.Printf("unmatched: r=%q, token=%+v", r, token)
-			if hasAnchor {
-				return false, nil
-			}
+		if !token.canIgnore() {
 			idx++
 			continue
 		}
-		token.cnt++
-		g.cursor += token.cursor()
-		if len(patterns) == g.cursor {
+		token, ok = g.nextToken()
+		if !ok {
 			break
 		}
-		idx++
 	}
-	ok := last != nil && last.ok && len(patterns) == g.cursor
-	if ok && hasEndAnchor {
-		return idx == len(inputs)-1, nil
+
+	ok = matched && !g.hasNextToken() && (token == emptyToken || token.cnt > 0)
+	if ok && g.endAnchor {
+		return idx >= len(inputs), nil
 	}
+	log.Printf("matched=%v, g=%+v, token=%+v", matched, g, token)
 	return ok, nil
 }
 
-func (g *grep) next(p string) (_ Token, ok bool) {
-	if g.cursor >= len(p) {
-		return emptyToken, false
-	}
-	var tok Token
-	p = p[g.cursor:]
-	switch {
-	case strings.HasPrefix(p, tokPlus):
-		tok = NewToken(tokPlus, "")
-	case strings.HasPrefix(p, tokAlnum):
-		tok = NewToken(tokAlnum, "")
-	case strings.HasPrefix(p, tokDigit):
-		tok = NewToken(tokDigit, "")
-	case strings.HasPrefix(p, tokNegative):
-		idx := strings.Index(p, "]")
-		tok = NewToken(tokNegative, p[2:idx])
-	case strings.HasPrefix(p, tokPositive):
-		idx := strings.Index(p, "]")
-		tok = NewToken(tokPositive, p[1:idx])
-	default:
-		tok = NewToken(tokRune, string(p[0]))
-	}
-	return tok, true
+func (g *grep) hasNextToken() bool {
+	return len(g.pattern) > 0
 }
 
-func (g *grep) parse(t Token, r rune) (*Result, error) {
-	var rlt Result
-	switch t.typ {
-	case tokAlnum:
-		rlt.ok = unicode.IsLetter(r)
-	case tokDigit:
-		rlt.ok = unicode.IsDigit(r)
-	case tokPositive:
-		rlt.ok = strings.ContainsAny(string(r), t.val)
-	case tokNegative:
-		rlt.ok = !strings.ContainsAny(string(r), t.val)
-		rlt.exit = !rlt.ok
-	case tokRune:
-		rlt.ok = strings.ContainsRune(t.val, r)
-	default:
-		return nil, fmt.Errorf("unknown token type: id=%s", t.typ)
+func (g *grep) nextToken() (tok Token, ok bool) {
+	if !g.hasNextToken() {
+		return emptyToken, false
 	}
-	return &rlt, nil
+
+	defer func() {
+		if !g.hasNextToken() {
+			return
+		}
+		switch string(g.pattern[0]) {
+		case opPlus:
+			tok.op = &Operator{typ: opPlus}
+		default:
+			return
+		}
+		g.pattern = g.pattern[1:]
+	}()
+
+	switch {
+	case strings.HasPrefix(g.pattern, tokAlnum):
+		tok = NewToken(tokAlnum, "")
+	case strings.HasPrefix(g.pattern, tokDigit):
+		tok = NewToken(tokDigit, "")
+	case strings.HasPrefix(g.pattern, tokNegative):
+		idx := strings.Index(g.pattern, "]")
+		tok = NewToken(tokNegative, g.pattern[2:idx])
+	case strings.HasPrefix(g.pattern, tokPositive):
+		idx := strings.Index(g.pattern, "]")
+		tok = NewToken(tokPositive, g.pattern[1:idx])
+	default:
+		tok = NewToken(tokRune, string(g.pattern[0]))
+	}
+
+	g.pattern = g.pattern[tok.cursor():]
+	return tok, true
 }
