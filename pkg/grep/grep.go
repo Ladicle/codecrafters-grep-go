@@ -18,11 +18,11 @@ func Run(input, pattern string) (matched bool) {
 }
 
 const (
-	TokenCharactorClass = iota
-	TokenBracket
-	TokenRune
-	TokenAnchor
-	TokenPlus
+	tokChar = iota
+	tokBracket
+	tokRune
+	tokAnchor
+	tokPlus
 )
 
 type Result struct {
@@ -60,7 +60,7 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			if token.typ == TokenPlus {
+			if token.typ == tokPlus {
 				token = prev
 				token.op = &Operator{typ: opPlus}
 			}
@@ -109,13 +109,13 @@ func (g *grep) nextToken(patterns string) (*Token, error) {
 	s := string(patterns[g.cursor])
 	switch {
 	case s == "+":
-		return &Token{s: s, typ: TokenPlus}, nil
+		return &Token{s: s, typ: tokPlus}, nil
 	case s == "^":
-		return &Token{s: s, typ: TokenAnchor}, nil
+		return &Token{s: s, typ: tokAnchor}, nil
 	case s == `\`:
 		t := &Token{
 			s:   patterns[g.cursor : g.cursor+2],
-			typ: TokenCharactorClass,
+			typ: tokChar,
 		}
 		if s := string(patterns[g.cursor+1]); s == "d" || s == "w" {
 			return t, nil
@@ -126,9 +126,9 @@ func (g *grep) nextToken(patterns string) (*Token, error) {
 		if idx == -1 {
 			return nil, fmt.Errorf("unmatched bracket: %s", patterns[g.cursor:])
 		}
-		return &Token{s: patterns[g.cursor : idx+1], typ: TokenBracket}, nil
+		return &Token{s: patterns[g.cursor : idx+1], typ: tokBracket}, nil
 	case utf8.RuneCountInString(s) == 1:
-		return &Token{s: s, typ: TokenRune}, nil
+		return &Token{s: s, typ: tokRune}, nil
 	}
 	return nil, fmt.Errorf("unknown token: %s", s)
 }
@@ -136,9 +136,9 @@ func (g *grep) nextToken(patterns string) (*Token, error) {
 func (g *grep) parse(t Token, r rune) (*Result, error) {
 	var rlt Result
 	switch t.typ {
-	case TokenCharactorClass:
+	case tokChar:
 		rlt.ok = (t.s == `\d` && unicode.IsDigit(r)) || (t.s == `\w` && unicode.IsLetter(r))
-	case TokenBracket:
+	case tokBracket:
 		if string(t.s[1]) != "^" {
 			rlt.ok = strings.ContainsAny(string(r), t.s[1:len(t.s)-1])
 			break
@@ -147,7 +147,7 @@ func (g *grep) parse(t Token, r rune) (*Result, error) {
 		if !rlt.ok {
 			rlt.exit = true
 		}
-	case TokenRune:
+	case tokRune:
 		rlt.ok = strings.ContainsRune(t.s, r)
 	default:
 		return nil, fmt.Errorf("unknown token type: id=%d", t.typ)
