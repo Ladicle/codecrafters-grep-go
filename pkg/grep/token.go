@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	opPlus = "+"
+	opPlus     = "+"
+	opQuestion = "?"
 )
 
 type Operator struct {
@@ -75,6 +76,8 @@ func (t *Token) canReuse() bool {
 	switch t.op.typ {
 	case opPlus:
 		return true
+	case opQuestion:
+		return t.cnt == 1
 	}
 	return false
 }
@@ -86,6 +89,8 @@ func (t *Token) canIgnore() bool {
 	switch t.op.typ {
 	case opPlus:
 		return t.cnt > 0
+	case opQuestion:
+		return true
 	}
 	return false
 }

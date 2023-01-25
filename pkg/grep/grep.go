@@ -79,7 +79,10 @@ func (g *grep) matchLine(line string) (bool, error) {
 		}
 	}
 
-	ok = matched && !g.hasNextToken() && (token == emptyToken || token.cnt > 0)
+	ok = matched &&
+		!g.hasNextToken() &&
+		(token == emptyToken || token.cnt > 0 || token.canIgnore())
+
 	if ok && g.endAnchor {
 		return idx >= len(inputs), nil
 	}
@@ -103,6 +106,8 @@ func (g *grep) nextToken() (tok Token, ok bool) {
 		switch string(g.pattern[0]) {
 		case opPlus:
 			tok.op = &Operator{typ: opPlus}
+		case opQuestion:
+			tok.op = &Operator{typ: opQuestion}
 		default:
 			return
 		}
