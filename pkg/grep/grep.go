@@ -1,11 +1,11 @@
 package grep
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 )
 
 func Run(input, pattern string) (matched bool) {
@@ -16,14 +16,6 @@ func Run(input, pattern string) (matched bool) {
 	}
 	return matched
 }
-
-const (
-	tokChar = iota
-	tokBracket
-	tokRune
-	tokAnchor
-	tokPlus
-)
 
 type Result struct {
 	ok   bool
@@ -51,30 +43,31 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 	var last *Result
 	for idx < len(inputs) {
 		r := inputs[idx]
-		var token *Token
+		var token Token
 		var err error
 		if prev != nil && prev.op != nil {
-			token = prev
+			token = *prev
 		} else {
-			token, err = g.nextToken(patterns)
-			if err != nil {
-				return false, err
+			var ok bool
+			token, ok = g.next(patterns)
+			if !ok {
+				return false, errors.New("failed to get token")
 			}
 			if token.typ == tokPlus {
-				token = prev
+				token = *prev
 				token.op = &Operator{typ: opPlus}
 			}
-			prev = token
+			prev = &token
 		}
 
-		last, err = g.parse(*token, r)
+		last, err = g.parse(token, r)
 		if err != nil {
 			return false, err
 		}
 		if token.op != nil && token.cnt > 0 && !last.ok {
 			log.Printf("unmatched: r=%q, token=%+v (continue)", r, token)
 			token.op = nil
-			g.cursor += len(token.s)
+			g.cursor += token.cursor()
 			if len(patterns) == g.cursor {
 				break
 			}
@@ -92,7 +85,7 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 			continue
 		}
 		token.cnt++
-		g.cursor += len(token.s)
+		g.cursor += token.cursor()
 		if len(patterns) == g.cursor {
 			break
 		}
@@ -105,52 +98,47 @@ func (g *grep) matchLine(line, patterns string) (bool, error) {
 	return ok, nil
 }
 
-func (g *grep) nextToken(patterns string) (*Token, error) {
-	s := string(patterns[g.cursor])
-	switch {
-	case s == "+":
-		return &Token{s: s, typ: tokPlus}, nil
-	case s == "^":
-		return &Token{s: s, typ: tokAnchor}, nil
-	case s == `\`:
-		t := &Token{
-			s:   patterns[g.cursor : g.cursor+2],
-			typ: tokChar,
-		}
-		if s := string(patterns[g.cursor+1]); s == "d" || s == "w" {
-			return t, nil
-		}
-		return nil, fmt.Errorf("unsupported charactor class: %s", t.s)
-	case s == "[":
-		idx := strings.Index(patterns[g.cursor:], "]")
-		if idx == -1 {
-			return nil, fmt.Errorf("unmatched bracket: %s", patterns[g.cursor:])
-		}
-		return &Token{s: patterns[g.cursor : idx+1], typ: tokBracket}, nil
-	case utf8.RuneCountInString(s) == 1:
-		return &Token{s: s, typ: tokRune}, nil
+func (g *grep) next(p string) (_ Token, ok bool) {
+	if g.cursor >= len(p) {
+		return emptyToken, false
 	}
-	return nil, fmt.Errorf("unknown token: %s", s)
+	var tok Token
+	p = p[g.cursor:]
+	switch {
+	case strings.HasPrefix(p, tokPlus):
+		tok = NewToken(tokPlus, "")
+	case strings.HasPrefix(p, tokAlnum):
+		tok = NewToken(tokAlnum, "")
+	case strings.HasPrefix(p, tokDigit):
+		tok = NewToken(tokDigit, "")
+	case strings.HasPrefix(p, tokNegative):
+		idx := strings.Index(p, "]")
+		tok = NewToken(tokNegative, p[2:idx])
+	case strings.HasPrefix(p, tokPositive):
+		idx := strings.Index(p, "]")
+		tok = NewToken(tokPositive, p[1:idx])
+	default:
+		tok = NewToken(tokRune, string(p[0]))
+	}
+	return tok, true
 }
 
 func (g *grep) parse(t Token, r rune) (*Result, error) {
 	var rlt Result
 	switch t.typ {
-	case tokChar:
-		rlt.ok = (t.s == `\d` && unicode.IsDigit(r)) || (t.s == `\w` && unicode.IsLetter(r))
-	case tokBracket:
-		if string(t.s[1]) != "^" {
-			rlt.ok = strings.ContainsAny(string(r), t.s[1:len(t.s)-1])
-			break
-		}
-		rlt.ok = !strings.ContainsAny(string(r), t.s[2:len(t.s)-1])
-		if !rlt.ok {
-			rlt.exit = true
-		}
+	case tokAlnum:
+		rlt.ok = unicode.IsLetter(r)
+	case tokDigit:
+		rlt.ok = unicode.IsDigit(r)
+	case tokPositive:
+		rlt.ok = strings.ContainsAny(string(r), t.val)
+	case tokNegative:
+		rlt.ok = !strings.ContainsAny(string(r), t.val)
+		rlt.exit = !rlt.ok
 	case tokRune:
-		rlt.ok = strings.ContainsRune(t.s, r)
+		rlt.ok = strings.ContainsRune(t.val, r)
 	default:
-		return nil, fmt.Errorf("unknown token type: id=%d", t.typ)
+		return nil, fmt.Errorf("unknown token type: id=%s", t.typ)
 	}
 	return &rlt, nil
 }
