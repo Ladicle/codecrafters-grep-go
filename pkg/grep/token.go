@@ -22,6 +22,7 @@ const (
 	tokDigit    = `\d`
 	tokAlnum    = `\w`
 	tokRune     = "rune"
+	tokWildcard = "."
 )
 
 var emptyToken = Token{}
@@ -49,6 +50,8 @@ func (t *Token) match(r rune) (ok bool, _ error) {
 		ok = !strings.ContainsAny(string(r), t.val)
 	case tokRune:
 		ok = strings.ContainsRune(t.val, r)
+	case tokWildcard:
+		ok = true
 	default:
 		return false, fmt.Errorf("unknown token type: id=%s", t.typ)
 	}
@@ -62,7 +65,7 @@ func (t *Token) cursor() int {
 		return len(t.typ) + len(t.val) + 1
 	case tokDigit, tokAlnum:
 		return 2
-	case tokRune:
+	case tokRune, tokWildcard:
 		return 1
 	default:
 		return -1

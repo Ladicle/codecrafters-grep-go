@@ -115,6 +115,8 @@ func (g *grep) nextToken() (tok Token, ok bool) {
 	}()
 
 	switch {
+	case strings.HasPrefix(g.pattern, tokWildcard):
+		tok = NewToken(tokWildcard, "")
 	case strings.HasPrefix(g.pattern, tokAlnum):
 		tok = NewToken(tokAlnum, "")
 	case strings.HasPrefix(g.pattern, tokDigit):

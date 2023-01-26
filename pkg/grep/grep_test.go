@@ -145,6 +145,18 @@ func TestRun(t *testing.T) {
 			pattern:     "cag?",
 			wantMatched: false,
 		},
+		{
+			name:        "match to dog",
+			s:           "dog",
+			pattern:     "d.g",
+			wantMatched: true,
+		},
+		{
+			name:        "unmatch to cog",
+			s:           "cog",
+			pattern:     "c.t",
+			wantMatched: false,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
