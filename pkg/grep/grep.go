@@ -39,8 +39,6 @@ type grep struct {
 }
 
 func (g *grep) matchLine(line string) (bool, error) {
-	inputs := []rune(line)
-
 	token, ok := g.nextToken()
 	if !ok {
 		return false, errors.New("no pattern")
@@ -48,9 +46,9 @@ func (g *grep) matchLine(line string) (bool, error) {
 
 	var matched bool
 	var idx int
-	for idx < len(inputs) {
+	for idx < len(line) {
 		var err error
-		matched, err = token.match(inputs[idx])
+		matched, err = token.match(line[idx:])
 		if err != nil {
 			return false, err
 		}
@@ -81,10 +79,10 @@ func (g *grep) matchLine(line string) (bool, error) {
 
 	ok = matched &&
 		!g.hasNextToken() &&
-		(token == emptyToken || token.cnt > 0 || token.canIgnore())
+		(token.typ == "" || token.cnt > 0 || token.canIgnore())
 
 	if ok && g.endAnchor {
-		return idx >= len(inputs), nil
+		return idx >= len(line), nil
 	}
 	log.Printf("matched=%v, g=%+v, token=%+v", matched, g, token)
 	return ok, nil
@@ -127,6 +125,10 @@ func (g *grep) nextToken() (tok Token, ok bool) {
 	case strings.HasPrefix(g.pattern, tokPositive):
 		idx := strings.Index(g.pattern, "]")
 		tok = NewToken(tokPositive, g.pattern[1:idx])
+	case strings.HasPrefix(g.pattern, tokOr):
+		idx := strings.Index(g.pattern, ")")
+		inner := g.pattern[1:idx]
+		tok = NewToken(tokOr, strings.Split(inner, "|")...)
 	default:
 		tok = NewToken(tokRune, string(g.pattern[0]))
 	}
